@@ -1,6 +1,6 @@
 # Verification record
 
-Performed locally on 14 October 2026 using Xcode 27.0, macOS 27.0.1, and the installed macOS SDK. No publishing, notarisation, login helpers, or user application termination was performed.
+Performed locally on 14 October 2026 using Xcode 27.0, macOS 27.0.1, and the installed macOS SDK. No publishing, notarisation, or login helpers were used. Initial checks used only disposable apps; the later Preview checks below were explicitly requested by the user.
 
 ## Build
 
