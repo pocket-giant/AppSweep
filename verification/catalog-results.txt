@@ -1,0 +1,4 @@
+Initial catalog: 149 apps
+PASS: new installed application discovered from directory notification
+PASS: newly discovered application disabled by default
+PASS: uninstalled application removed from catalog

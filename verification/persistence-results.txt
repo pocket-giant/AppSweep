@@ -1,0 +1,2 @@
+PASS: process one saved per-app policy and global pause
+PASS: restarted AppKit process restored per-app policy and global pause
