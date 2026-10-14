@@ -2,7 +2,17 @@
 
 A small native macOS menu bar app that quits selected applications after you switch away. Swift, AppKit, and SwiftUI; no external dependencies, helper services, scripts, or permission prompts.
 
-## Run locally
+## Install the standalone app
+
+1. Open `QuietBar.dmg` beside this project.
+2. Drag **QuietBar** onto the **Applications** shortcut inside the disk image.
+3. Eject the disk image and open **QuietBar** from Applications.
+
+The standalone app requires macOS 13 or later; Xcode is not needed to run it. It lives in the menu bar with no Dock icon. Settings open on first launch; afterward, click the moon icon → **Settings…**.
+
+`QuietBar.app` is also available beside this project for direct drag-and-drop installation. Both copies contain the same universal Apple Silicon and Intel build, locally signed and not notarised. No publishing or external distribution was performed.
+
+## Build locally
 
 Requires macOS 13 or later and Xcode 15 or later to build.
 
@@ -10,8 +20,6 @@ Requires macOS 13 or later and Xcode 15 or later to build.
 2. Select the **QuietBar** scheme and **My Mac**, then press **⌘R**. The project uses local ad hoc signing; no development team is needed.
 3. Settings open on first launch. Afterward, click the moon icon in the menu bar → **Settings…**. Opening QuietBar again also opens Settings. There is no Dock icon.
 4. Search for an app, select it, set its timeout, and enable **Automatically close when inactive**.
-
-The locally built `QuietBar.app` beside this project can also be opened directly. It is an Apple Silicon build, locally signed for this machine, and has not been published, distributed, or notarised. To build for another Mac, use the Xcode project there.
 
 From this directory, a command-line build is also available:
 

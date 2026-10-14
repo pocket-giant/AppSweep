@@ -6,6 +6,8 @@ Performed locally on 14 October 2026 using Xcode 27.0, macOS 27.0.1, and the ins
 
 - Debug and Release builds completed successfully with `xcodebuild`.
 - The locally signed application bundle passed `codesign --verify --strict`.
+- A subsequent standalone Release build compiled both `arm64` and `x86_64` into a universal binary. Intel execution remains untested.
+- `QuietBar.dmg` passed its checksum verification, mounted read-only, and contained the signed universal app and a shortcut to `/Applications`. The mounted app passed signature verification for both architectures; its linked libraries are all macOS system libraries. The disk image was then ejected.
 - `LSUIElement` is true, the deployment target is macOS 13, and App Sandbox is disabled.
 - Xcode emits an informational App Intents metadata extraction warning because this app does not use App Intents. There are no Swift compiler errors.
 
