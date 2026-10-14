@@ -61,12 +61,12 @@ Settings read failures leave everything disabled and paused without overwriting 
 | --- | --- |
 | `QuietBarApp.swift` | AppKit lifecycle, menu bar, popover, settings window, single-instance startup |
 | `InactivityMonitor.swift` | Workspace notifications, process identities, one-shot timers, quit requests and bounded history |
-| `ApplicationCatalog.swift` | Background discovery and directory watchers |
+| `ApplicationCatalog.swift` | Background discovery and one recursive FSEvents stream |
 | `SettingsStore.swift` | Validated local policies and atomic persistence |
 | `LoginItemManager.swift` | `SMAppService.mainApp` registration and actual status |
 | `Models.swift`, `Views.swift` | Safety rules, status models and native SwiftUI interface |
 
-Termination is serialized on the main actor. Each timer carries a generation token and PID/launch-date identity. Before every normal or forced request, the monitor resolves the running process again and checks its identity, safety exclusions, activation, pause state, and policy. KVO supplements workspace termination notifications. Only one one-shot timer per process is retained. UI countdowns update only while their window/popover is present; history is bounded and kept in memory. Icons use a bounded cache. No accessibility or automation permissions are requested. App Sandbox is off because macOS does not permit cross-application force termination from sandboxed apps.
+Termination is serialized on the main actor. Each timer carries a generation token and PID/launch-date identity. Before every normal or forced request, the monitor resolves the running process again and checks its identity, safety exclusions, activation, pause state, and policy. KVO supplements workspace termination notifications. Only one one-shot timer per process is retained. Discovery uses one recursive FSEvents stream for all application folders, so descriptor use does not grow with the number of subfolders. UI countdowns update only while their window/popover is present; history is bounded and kept in memory. Icons use a bounded cache. No accessibility or automation permissions are requested. App Sandbox is off because macOS does not permit cross-application force termination from sandboxed apps.
 
 Diagnostic messages use Unified Logging with subsystem `local.QuietBar`, categories `Monitor`, `Settings`, and `Catalog`. Console can filter for this subsystem.
 

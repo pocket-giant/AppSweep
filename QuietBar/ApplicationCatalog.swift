@@ -1,6 +1,12 @@
 import AppKit
 import Combine
+import CoreServices
 import OSLog
+
+private final class DiscoveryCallback {
+    let changed: @MainActor (Bool) -> Void
+    init(changed: @escaping @MainActor (Bool) -> Void) { self.changed = changed }
+}
 
 /// Scans app folders off the main thread; directory events trigger debounced rescans.
 @MainActor
@@ -8,11 +14,16 @@ final class ApplicationCatalog: ObservableObject {
     @Published private(set) var apps: [InstalledApp] = []
     @Published private(set) var scanning = false
     private let queue = DispatchQueue(label: "local.QuietBar.catalog", qos: .utility)
-    private var watchers: [String: DispatchSourceFileSystemObject] = [:]
+    private var eventStream: FSEventStreamRef?
+    private var restartStreamAfterScan = false
     private var refreshTask: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
     private var rescanRequested = false
     private let logger = Logger(subsystem: "local.QuietBar", category: "Catalog")
+    private let roots = [URL(fileURLWithPath: "/Applications"),
+                         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications"),
+                         URL(fileURLWithPath: "/System/Applications"),
+                         URL(fileURLWithPath: "/System/Volumes/Preboot/Cryptexes/App/System/Applications")]
 
     init() {
         let center = NSWorkspace.shared.notificationCenter
@@ -22,6 +33,7 @@ final class ApplicationCatalog: ObservableObject {
                 self?.scheduleRefresh()
             }.store(in: &subscriptions)
         }
+        startDiscoveryEvents()
         refresh()
     }
 
@@ -38,26 +50,16 @@ final class ApplicationCatalog: ObservableObject {
         guard !scanning else { rescanRequested = true; return }
         scanning = true
         let runningURLs = NSWorkspace.shared.runningApplications.compactMap(\.bundleURL)
-        let roots = [URL(fileURLWithPath: "/Applications"),
-                     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications"),
-                     URL(fileURLWithPath: "/System/Applications"),
-                     URL(fileURLWithPath: "/System/Volumes/Preboot/Cryptexes/App/System/Applications")]
+        let roots = self.roots
         queue.async { [weak self] in
             var urls = Set(runningURLs)
-            var directories = Set<URL>()
-            // Watch parents too, so creation/replacement of an Applications folder is discovered.
-            directories.insert(FileManager.default.homeDirectoryForCurrentUser)
-            directories.insert(URL(fileURLWithPath: "/"))
             for root in roots where FileManager.default.fileExists(atPath: root.path) {
-                directories.insert(root)
                 guard let iterator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
                 for case let url as URL in iterator {
                     if url.pathExtension.lowercased() == "app" {
                         urls.insert(url)
                         iterator.skipDescendants()
-                    } else if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                        directories.insert(url)
                     }
                 }
             }
@@ -78,7 +80,10 @@ final class ApplicationCatalog: ObservableObject {
                 guard let self else { return }
                 self.apps = result
                 self.scanning = false
-                self.installWatchers(directories)
+                if self.restartStreamAfterScan {
+                    self.restartStreamAfterScan = false
+                    self.startDiscoveryEvents()
+                }
                 if self.rescanRequested {
                     self.rescanRequested = false
                     self.scheduleRefresh()
@@ -87,25 +92,56 @@ final class ApplicationCatalog: ObservableObject {
         }
     }
 
-    private func installWatchers(_ directories: Set<URL>) {
-        let paths = Set(directories.map(\.path))
-        for path in Array(watchers.keys) where !paths.contains(path) { watchers.removeValue(forKey: path)?.cancel() }
-        for path in paths where watchers[path] == nil {
-            let fd = open(path, O_EVTONLY)
-            guard fd >= 0 else { logger.debug("Cannot watch folder \(path, privacy: .public)"); continue }
-            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd,
-                eventMask: [.write, .rename, .delete, .revoke], queue: .main)
-            source.setEventHandler { [weak self, weak source] in
-                if let source, !source.data.intersection([.rename, .delete, .revoke]).isEmpty {
-                    self?.watchers.removeValue(forKey: path)?.cancel()
-                }
-                self?.scheduleRefresh()
-            }
-            source.setCancelHandler { close(fd) }
-            watchers[path] = source
-            source.resume()
+    private func startDiscoveryEvents() {
+        if let eventStream {
+            FSEventStreamStop(eventStream)
+            FSEventStreamInvalidate(eventStream)
+            FSEventStreamRelease(eventStream)
+            self.eventStream = nil
         }
+        // One recursive stream for all application folders. Opening a descriptor for
+        // every subfolder exhausts macOS's per-process limit, breaking fonts and writes.
+        let callback = DiscoveryCallback { [weak self] rootChanged in
+            guard let self else { return }
+            self.restartStreamAfterScan = self.restartStreamAfterScan || rootChanged
+            self.scheduleRefresh()
+        }
+        var context = FSEventStreamContext(version: 0,
+            info: Unmanaged.passUnretained(callback).toOpaque(),
+            retain: { info in
+                guard let info else { return nil }
+                _ = Unmanaged<DiscoveryCallback>.fromOpaque(info).retain()
+                return info
+            },
+            release: { info in
+                guard let info else { return }
+                Unmanaged<DiscoveryCallback>.fromOpaque(info).release()
+            }, copyDescription: nil)
+        guard let stream = FSEventStreamCreate(kCFAllocatorDefault, { _, info, count, _, flags, _ in
+            guard let info else { return }
+            let callback = Unmanaged<DiscoveryCallback>.fromOpaque(info).takeUnretainedValue()
+            let rootChanged = (0..<count).contains { flags[$0] & UInt32(kFSEventStreamEventFlagRootChanged) != 0 }
+            MainActor.assumeIsolated { callback.changed(rootChanged) }
+        }, &context, roots.map(\.path) as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.5,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagWatchRoot)) else {
+            logger.error("Could not create application discovery stream; manual refresh remains available")
+            return
+        }
+        FSEventStreamSetDispatchQueue(stream, .main)
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            logger.error("Could not start application discovery stream; manual refresh remains available")
+            return
+        }
+        eventStream = stream
     }
 
-    deinit { watchers.values.forEach { $0.cancel() } }
+    deinit {
+        if let eventStream {
+            FSEventStreamStop(eventStream)
+            FSEventStreamInvalidate(eventStream)
+            FSEventStreamRelease(eventStream)
+        }
+    }
 }

@@ -39,13 +39,21 @@ Persistence was also checked across two separately launched AppKit processes usi
 
 Application discovery was checked by temporarily installing an unused disposable bundle in `~/Applications`, observing the catalog refresh, confirming its disabled default, and removing it. See [catalog-results.txt](verification/catalog-results.txt).
 
-## UI and environment limits
+## UI correction in 1.0.1
 
 The settings accessibility tree exposed the searchable list, icons, protected/disabled rows, per-app timeout, termination selection, safety text, activity/general sections, pause/resume, and login status. Searching for an installed application filtered the list. The pause control changed the displayed state.
 
-Full visual and UI persistence verification was limited by this host. Native inspection repeatedly timed out, and its macOS CoreUI logs reported missing system appearance resources (`DarkAqua.car`, `Graphite.car`, and vibrant variants). Some SwiftUI text was absent in captured images. UI edits also produced `NSCocoaErrorDomain` write errors (512), while direct production-store checks successfully wrote and restored settings. These failures are not counted as passing UI checks; a complete visual check and settings edit/restart check through the delivered utility UI remain to be performed on a normal macOS installation.
+The original 1.0 build exhausted its 256-descriptor limit by opening 253 application-folder directory watchers. CoreUI logged `Too many open files` when attempting to read appearance resources; this caused missing SwiftUI text, inspection timeouts, and settings write failures. The earlier attribution to missing host resources was incorrect: this was an application resource-management bug.
 
-Launch-at-login registration uses the actual `SMAppService` status; a development copy reported `.notFound`, which the UI explains. Registration and a real logout/login cycle were not performed. Real document save dialogs, locked screens, arbitrary third-party refusal behavior, and Intel execution were not tested. PID reuse protection was inspected in code; the OS was not forced to reuse a PID.
+Version 1.0.1 replaces per-directory watchers with one recursive FSEvents stream, with retained callback context, weak ownership, and explicit stream cleanup. The corrected installed app used 23 descriptors during inspection. Application names, status captions, headings, safety text, and General settings were visibly verified in screenshots on this same Mac. No forced appearance or text-color workaround was added.
+
+Through the actual utility UI, a disabled app's timeout was changed from 30 to 60 seconds and global pause enabled. The saved JSON was checked, QuietBar was quit with ⌘Q and reopened, and both values were verified in its UI. The timeout and pause were then restored to their original values; no application was enabled. Selecting a forced mode displayed the explicit unsaved-work confirmation; Cancel left Normal quit selected.
+
+A targeted regression probe added 400 nested application-folder subdirectories and refreshed eight times. Descriptor count stayed at 23. Installing a disposable app inside a nested test folder triggered automatic discovery, left its policy disabled, and removal updated the catalog. Temporary folders were removed. See [catalog-stress-results.txt](verification/catalog-stress-results.txt).
+
+## Remaining verification limits
+
+Launch-at-login registration uses the actual `SMAppService` status; inspected copies reported `.notFound`, which the UI explains. Registration and a real logout/login cycle were not performed. Real document save dialogs, locked screens, arbitrary third-party refusal behavior, and Intel execution were not tested. PID reuse protection was inspected in code; the OS was not forced to reuse a PID.
 
 ## Short manual check on your Mac
 

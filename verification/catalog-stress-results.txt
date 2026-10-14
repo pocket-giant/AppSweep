@@ -1,0 +1,6 @@
+Initial catalog: 149 apps; 400 extra application subfolders
+PASS: descriptor count bounded with 400 subfolders (23 open)
+PASS: repeated refreshes do not leak descriptors (23 open)
+PASS: new installed application discovered from directory notification
+PASS: newly discovered application disabled by default
+PASS: uninstalled application removed from catalog

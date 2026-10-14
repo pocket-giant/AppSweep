@@ -412,7 +412,7 @@ private struct GeneralView: View {
                 if store.canResetUnreadableSettings { Button("Back Up and Reset Unreadable Settings…") { confirmReset = true } }
             } header: { Text("Storage") }
             Section {
-                LabeledContent("Version", value: "1.0")
+                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1")
                 Text("macOS 13 or later · Swift, AppKit & SwiftUI").font(.caption).foregroundStyle(.secondary)
             } header: { Text("QuietBar") }
         }.formStyle(.grouped).onAppear { login.refresh() }
