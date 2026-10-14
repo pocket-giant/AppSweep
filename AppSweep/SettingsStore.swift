@@ -19,6 +19,7 @@ final class SettingsStore: ObservableObject {
     private let logger = Logger(subsystem: "local.QuietBar", category: "Settings")
 
     init(fileURL: URL? = nil) {
+        // Retain the original storage location when upgrading from QuietBar to AppSweep.
         self.fileURL = fileURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("QuietBar", isDirectory: true)
             .appendingPathComponent("settings.json", isDirectory: false)

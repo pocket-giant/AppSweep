@@ -1,0 +1,73 @@
+PASS: all applications disabled on first launch
+PASS: sensible default policy
+PASS: policy saved: Normal quit
+PASS: active instance has no countdown
+PASS: fixture has an open visible window
+PASS: switching away starts countdown with open window
+PASS: returning cancels countdown
+PASS: active application survives past its former deadline
+PASS: switching away again restarts the full timeout
+PASS: normal termination works
+PASS: terminated process and timer removed
+PASS: policy saved: Normal quit
+PASS: policy saved: Normal quit, then force quit
+PASS: refused normal quit enters opt-in fallback
+PASS: returning during fallback prevents force termination
+PASS: policy saved: Normal quit
+PASS: normal-only refusal is reported without force quit
+PASS: policy saved: Normal quit, then force quit
+PASS: explicit force fallback closes refusing app
+PASS: policy saved: Force quit only
+PASS: global pause persisted
+PASS: pausing cancels countdowns and prevents automatic closing
+PASS: resume persisted
+PASS: force-only mode skips normal quit after resume
+PASS: active sibling instance is protected from force quit
+PASS: policy saved: Normal quit
+PASS: settings restore when a new store is created
+PASS: relaunched app gets a new process identity
+PASS: relaunch tracked without stale timer
+PASS: policy saved: Force quit only
+PASS: utility cannot manage its own process
+PASS: self-targeting policy saved for guard verification
+PASS: no self timer or termination attempt despite enabled force policy
+PASS: essential process protected: com.apple.finder
+PASS: essential process protected: com.apple.dock
+PASS: essential process protected: com.apple.loginwindow
+PASS: essential process protected: com.apple.SystemUIServer
+PASS: policy saved: Force quit only
+PASS: multiple instances have separate active/countdown states
+PASS: sleep cancels pending timers (notification injection)
+PASS: wake starts fresh timers (notification injection)
+PASS: policy saved: Normal quit
+HISTORY:
+Preview [47029] Recovered live process identity from stale macOS application record
+Fixture [50708] Inactive: 2s countdown started
+Fixture [50708] Inactive: 2s countdown started
+Fixture [50708] Countdown or force fallback cancelled: application active
+Fixture [50708] Inactive: 2s countdown started
+Fixture [50708] Normal quit requested
+Fixture [50708] Application exited
+Fixture [50717] Inactive: 2s countdown started
+Fixture [50717] Inactive: 2s countdown started
+Fixture [50717] Normal quit requested
+Fixture [50717] Countdown or force fallback cancelled: application active
+Fixture [50717] Inactive: 1s countdown started
+Fixture [50717] Normal quit requested
+Fixture [50717] Still running after normal quit. Reason unknown; force fallback is off.
+Fixture [50717] Inactive: 1s countdown started
+Fixture [50717] Normal quit requested
+Fixture [50717] Force quit explicitly enabled: request sent
+Fixture [50717] Application exited
+Fixture [50769] Inactive: 1s countdown started
+Fixture [50769] Inactive: 1s countdown started
+AppSweep [0] Automatic closing paused
+AppSweep [0] Automatic closing resumed; fresh countdowns started
+Fixture [50769] Inactive: 1s countdown started
+Fixture [50769] Force quit explicitly enabled: request sent
+Fixture [50769] Application exited
+Fixture [50783] Inactive: 3s countdown started
+AppSweep [0] Countdowns cancelled while Mac sleeps or session is inactive
+AppSweep [0] Session resumed; fresh countdowns started
+Fixture [50783] Inactive: 3s countdown started
+RESULT: 42 checks passed

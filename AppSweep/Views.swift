@@ -61,10 +61,10 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                Image(systemName: "moon.zzz.fill").font(.title2).foregroundStyle(Color.accentColor)
+                Image(systemName: "square.stack.3d.up.slash.fill").font(.title2).foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("QuietBar").font(.headline)
-                    Text(monitor.isPaused ? "Automatic closing paused" : "Keeping your workspace quiet")
+                    Text("AppSweep").font(.headline)
+                    Text(monitor.isPaused ? "Automatic closing paused" : "Less Dock clutter. Fewer idle apps.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -105,7 +105,7 @@ struct MenuView: View {
             HStack {
                 Button("Settings…", action: openSettings).keyboardShortcut(",")
                 Spacer()
-                Button("Quit QuietBar", action: quit).keyboardShortcut("q")
+                Button("Quit AppSweep", action: quit).keyboardShortcut("q")
             }
         }.padding(20).frame(width: 350)
     }
@@ -129,10 +129,11 @@ struct SettingsView: View {
     @ObservedObject var monitor: InactivityMonitor
     @ObservedObject var login: LoginItemManager
     @State private var section: SettingsSection? = .applications
+    @State private var selectedApp: String?
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 18) {
-                Label("QuietBar", systemImage: "moon.zzz.fill").font(.title3.weight(.semibold)).padding(.horizontal, 16).padding(.top, 20)
+                Label("AppSweep", systemImage: "square.stack.3d.up.slash.fill").font(.title3.weight(.semibold)).padding(.horizontal, 16).padding(.top, 20)
                 List(SettingsSection.allCases, selection: $section) { item in
                     Label(item.rawValue, systemImage: item.symbol).tag(item).padding(.vertical, 5)
                 }.listStyle(.sidebar)
@@ -151,8 +152,11 @@ struct SettingsView: View {
                     Divider()
                 }
                 switch section ?? .applications {
-                case .applications: ApplicationsView(store: store, catalog: catalog, monitor: monitor)
-                case .activity: ActivityView(monitor: monitor)
+                case .applications: ApplicationsView(store: store, catalog: catalog, monitor: monitor, selected: $selectedApp)
+                case .activity: ActivityView(monitor: monitor) { bundleID in
+                    selectedApp = bundleID
+                    section = .applications
+                }
                 case .general: GeneralView(store: store, login: login)
                 }
             }
@@ -166,7 +170,7 @@ private struct ApplicationsView: View {
     @ObservedObject var monitor: InactivityMonitor
     @State private var search = ""
     @State private var enabledOnly = false
-    @State private var selected: String?
+    @Binding var selected: String?
     private var allApps: [InstalledApp] {
         let present = Set(catalog.apps.map(\.id))
         let missing = store.policies.keys.filter { !present.contains($0) }.sorted().map {
@@ -242,10 +246,12 @@ private struct ApplicationsView: View {
             } else {
                 VStack(spacing: 14) {
                     Image(systemName: "timer").font(.system(size: 44, weight: .light)).foregroundStyle(Color.accentColor)
-                    Text("A quieter workspace").font(.title2.weight(.medium))
-                    Text("Select an application to set its inactivity timeout.\nApplications stay off until you enable them.")
+                    Text("Clear the app clutter").font(.title2.weight(.medium))
+                    Text("Quit apps you’re done with to free memory\nand clear inactive, unpinned apps from your Dock.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
-                    Text("Finder, macOS services, and QuietBar are protected.")
+                    Text("Select an app and enable automatic closing.\nYou choose how long it stays open after switching away.")
+                        .font(.callout).multilineTextAlignment(.center).foregroundStyle(.secondary)
+                    Text("Finder, macOS services, and AppSweep are protected.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -295,13 +301,13 @@ private struct AppDetailView: View {
                 }.disabled(app.protection != nil)
                 GroupBox {
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("How to close").font(.headline)
+                        Text("Quit strength").font(.headline)
                         Picker("Termination mode", selection: Binding(get: { policy.mode }, set: { mode in
                             if mode == .normal { edit { $0.mode = mode } }
                             else if mode != policy.mode { proposedMode = mode }
                         })) {
                             ForEach(TerminationMode.allCases) { Text($0.title).tag($0) }
-                        }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+                        }.pickerStyle(.radioGroup).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
                         if policy.mode == .normalThenForce {
                             HStack {
                                 Text("Force fallback after")
@@ -312,7 +318,9 @@ private struct AppDetailView: View {
                             Text("1–300 seconds after requesting normal quit.").font(.caption).foregroundStyle(.secondary)
                         }
                         if policy.mode == .normal {
-                            Text("Normal quit lets the application show save confirmations. If it stays open, QuietBar reports that and waits until you return and switch away again.")
+                            Text("Normal quit lets the application show save confirmations. If it stays open, AppSweep reports that and waits until you return and switch away again.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text("For stubborn apps, choose Normal quit, then force quit. Force quit only skips the normal request entirely.")
                                 .font(.caption).foregroundStyle(.secondary)
                         } else {
                             Label("Force quitting may discard unsaved work, including while a save confirmation is open.", systemImage: "exclamationmark.triangle.fill")
@@ -348,13 +356,14 @@ private struct AppDetailView: View {
                 proposedMode = nil
             }
         } message: { mode in
-            Text("Force quitting may discard unsaved work. QuietBar cannot reliably detect unsaved documents.\(mode == .normalThenForce ? " The fallback may close an app even while it is showing a save confirmation." : " This mode skips normal quit and save confirmations.")")
+            Text("Force quitting may discard unsaved work. AppSweep cannot reliably detect unsaved documents.\(mode == .normalThenForce ? " The fallback may close an app even while it is showing a save confirmation." : " This mode skips normal quit and save confirmations.")")
         }
     }
 }
 
 private struct ActivityView: View {
     @ObservedObject var monitor: InactivityMonitor
+    let reviewPolicy: (String) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -378,6 +387,10 @@ private struct ActivityView: View {
                             Text(event.date, style: .time).font(.caption).foregroundStyle(.secondary)
                         }
                         Text(event.message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        if event.warning, let status = monitor.orderedStatuses.first(where: { $0.id.pid == event.pid && $0.phase == .refused }) {
+                            Button("Review quit options for \(status.name)…") { reviewPolicy(status.bundleID) }
+                                .font(.caption)
+                        }
                     }
                 }.padding(.vertical, 8)
             }.listStyle(.inset)
@@ -401,20 +414,22 @@ private struct GeneralView: View {
                 Button("Open Login Items in System Settings") { login.openSystemSettings() }
             } header: { Text("Startup") }
             Section {
-                Text("QuietBar lives in the menu bar and uses no background helper. All applications start disabled.")
+                Text("AppSweep quits selected inactive applications to reduce Dock clutter and free the memory they use.")
+                Text("Unpinned app icons leave the Dock when the app quits. Pinned icons stay; remove those from the Dock manually. macOS may retain cached data after an app exits.")
+                Text("AppSweep lives in the menu bar and uses no background helper. All applications start disabled.")
                 Text("Normal quit is the default. Force quitting requires an explicit choice for each app and can discard unsaved work.")
                 Text("Returning to an app cancels any pending force fallback. A normal quit request already sent cannot be recalled; respond to save dialogs inside the app.")
                 Text("Timers restart from the full timeout after pause, sleep, session changes, or a settings change.")
             } header: { Text("Behavior & safety") }
             Section {
                 Text(store.fileURL.path).font(.caption.monospaced()).textSelection(.enabled)
-                Text("Settings are saved locally. Recent activity stays in memory and is cleared when QuietBar quits.").font(.caption).foregroundStyle(.secondary)
+                Text("Settings are saved locally. Recent activity stays in memory and is cleared when AppSweep quits.").font(.caption).foregroundStyle(.secondary)
                 if store.canResetUnreadableSettings { Button("Back Up and Reset Unreadable Settings…") { confirmReset = true } }
             } header: { Text("Storage") }
             Section {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1")
+                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1")
                 Text("macOS 13 or later · Swift, AppKit & SwiftUI").font(.caption).foregroundStyle(.secondary)
-            } header: { Text("QuietBar") }
+            } header: { Text("AppSweep") }
         }.formStyle(.grouped).onAppear { login.refresh() }
         .alert("Reset unreadable settings?", isPresented: $confirmReset) {
             Button("Cancel", role: .cancel) {}

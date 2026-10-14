@@ -1,0 +1,5 @@
+PASS: mismatched process start time rejects signal
+PASS: mismatched executable rejects signal
+PASS: signal boundary protects utility process
+PASS: explicit signal fallback sent to verified disposable process
+PASS: refusing fixture actually exited after signal fallback

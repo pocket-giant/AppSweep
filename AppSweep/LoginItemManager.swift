@@ -10,9 +10,9 @@ final class LoginItemManager: ObservableObject {
     var requested: Bool { status == .enabled || status == .requiresApproval }
     var description: String {
         switch status {
-        case .enabled: return "QuietBar will open when you log in."
+        case .enabled: return "AppSweep will open when you log in."
         case .requiresApproval: return "Approval is needed in System Settings → General → Login Items."
-        case .notRegistered: return "Open QuietBar manually when you need it."
+        case .notRegistered: return "Open AppSweep manually when you need it."
         case .notFound: return "macOS could not find this app. Keep it in a stable location, such as Applications."
         @unknown default: return "Login item status is unavailable."
         }

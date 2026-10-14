@@ -3,7 +3,7 @@ import SwiftUI
 import Combine
 
 @main
-struct QuietBarApp {
+struct AppSweepApp {
     @MainActor
     static func main() {
         let application = NSApplication.shared
@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.setAccessibilityLabel("QuietBar")
+        statusItem.button?.setAccessibilityLabel("AppSweep")
         popover.behavior = .transient
         popover.delegate = self
         subscription = store.$paused.sink { [weak self] paused in self?.updateIcon(paused: paused) }
@@ -53,10 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     }
 
     private func updateIcon(paused: Bool) {
-        let image = NSImage(systemSymbolName: paused ? "pause.circle" : "moon.zzz", accessibilityDescription: "QuietBar")
+        let image = NSImage(systemSymbolName: paused ? "pause.circle" : "square.stack.3d.up.slash", accessibilityDescription: "AppSweep")
         image?.isTemplate = true
         statusItem.button?.image = image
-        statusItem.button?.toolTip = paused ? "QuietBar — paused" : "QuietBar — automatic app closing"
+        statusItem.button?.toolTip = paused ? "AppSweep — paused" : "AppSweep — clear inactive apps and Dock clutter"
     }
 
     @objc private func togglePopover() {
@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 690),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "QuietBar Settings"
+        window.title = "AppSweep Settings"
         window.minSize = NSSize(width: 940, height: 620)
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         settings.target = self
         appMenu.addItem(settings)
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit QuietBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit AppSweep", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         menu.addItem(appMenuItem)
         let editItem = NSMenuItem()

@@ -51,6 +51,20 @@ Through the actual utility UI, a disabled app's timeout was changed from 30 to 6
 
 A targeted regression probe added 400 nested application-folder subdirectories and refreshed eight times. Descriptor count stayed at 23. Installing a disposable app inside a nested test folder triggered automatic discovery, left its policy disabled, and removal updated the catalog. Temporary folders were removed. See [catalog-stress-results.txt](verification/catalog-stress-results.txt).
 
+## AppSweep branding and Preview recovery (1.1.1)
+
+The app, project, installer, window titles, and UI are now named AppSweep, with a stack-clearing icon and copy about Dock clutter and idle application memory. The bundle identifier `local.QuietBar` and original settings folder are retained. Before/after settings files matched during the rename; the user subsequently authorized changing Preview to Normal quit followed by force quit after five seconds. That rule was selected through the installed app's explicit warning confirmation, with its existing 30-second inactivity timeout preserved.
+
+Preview was reproduced as a live process (PID 47029) while both workspace lookup and lookup by that PID returned a stale `NSRunningApplication` with PID `-1` and an obsolete launch date. The production monitor now obtains PID/start-time identity and exact executable using public `libproc` APIs. Normal quit still uses AppKit. Explicit forced modes can use the public POSIX signal API if AppKit cannot address the verified live process. The signal boundary rechecks identity and executable and rejects the utility's own PID; the monitor also rechecks activation, pause, exclusions, and current policy.
+
+After installing the corrected build, Activity showed the stale Preview process being recovered, its full 30-second countdown, a normal quit request, and exit. A fresh Preview launch (PID 51179) was then checked through the installed app: switching away displayed the countdown, Activity recorded normal quit and exit, and the five-second fallback rule remained enabled. These Preview instances exited normally; no force signal was needed in either observed Preview run. The stale-record signal branch is separately checked with a disposable refusing fixture, rather than claimed as exercised against Preview.
+
+The 42 controlled monitor checks were repeated successfully, including active-app protection, fallback cancellation, refusal, force-only, multiple instances, pause/resume, and self-protection. The short force-only verification wait was adjusted to wait up to eight seconds for observed process exit on this busy host; no production timing was changed for the test. See [appsweep-behavior-results.txt](verification/appsweep-behavior-results.txt).
+
+The updated Quit strength control displays all modes directly, and Activity warning rows offer a policy-review link. The installed UI was used to select and confirm Preview's fallback rule. Repeated automated document detection is not implemented or claimed.
+
+A separate disposable refusing AppKit fixture exercised the direct signal boundary: mismatched start time and executable were rejected, the utility's own PID was protected, and the exact verified fixture exited after the signal. See [signal-results.txt](verification/signal-results.txt).
+
 ## Remaining verification limits
 
 Launch-at-login registration uses the actual `SMAppService` status; inspected copies reported `.notFound`, which the UI explains. Registration and a real logout/login cycle were not performed. Real document save dialogs, locked screens, arbitrary third-party refusal behavior, and Intel execution were not tested. PID reuse protection was inspected in code; the OS was not forced to reuse a PID.

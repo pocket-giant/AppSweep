@@ -12,11 +12,13 @@ final class InactivityMonitor: ObservableObject {
         let observedApplication: NSRunningApplication
         let bundleID: String
         let name: String
+        let executablePath: String
         var timer: Timer?
         var generation = UUID()
         var terminationObservation: NSKeyValueObservation?
-        init(app: NSRunningApplication, identity: ProcessIdentity, bundleID: String) {
-            self.identity = identity
+        init(app: NSRunningApplication, process: ProcessLookup.Snapshot, bundleID: String) {
+            self.identity = process.identity
+            executablePath = process.executablePath
             observedApplication = app
             self.bundleID = bundleID
             name = app.localizedName ?? bundleID
@@ -32,7 +34,6 @@ final class InactivityMonitor: ObservableObject {
     private var entries: [ProcessIdentity: Entry] = [:]
     private var subscriptions = Set<AnyCancellable>()
     private var previousPolicies: [String: AppPolicy]
-    private var lastActive: ProcessIdentity?
     private var sleeping = false
     private var sessionInactive = false
     private let logger = Logger(subsystem: "local.QuietBar", category: "Monitor")
@@ -49,15 +50,16 @@ final class InactivityMonitor: ObservableObject {
     init(store: SettingsStore) {
         self.store = store
         previousPolicies = store.policies
-        lastActive = NSWorkspace.shared.frontmostApplication.flatMap(ProcessIdentity.init)
         let center = NSWorkspace.shared.notificationCenter
         observe(center, NSWorkspace.didActivateApplicationNotification) { [weak self] in self?.activated($0) }
         observe(center, NSWorkspace.didDeactivateApplicationNotification) { [weak self] in self?.deactivated($0) }
         observe(center, NSWorkspace.didLaunchApplicationNotification) { [weak self] in self?.launched($0) }
         observe(center, NSWorkspace.didTerminateApplicationNotification) { [weak self] note in
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  let identity = ProcessIdentity(app) else { return }
-            self?.terminated(identity)
+            guard let self,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            for entry in Array(self.entries.values) where entry.bundleID == app.bundleIdentifier {
+                if ProcessLookup.snapshot(pid: entry.identity.pid)?.identity != entry.identity { self.terminated(entry.identity) }
+            }
         }
         observe(center, NSWorkspace.willSleepNotification) { [weak self] _ in
             self?.sleeping = true; self?.updateSuspension()
@@ -77,7 +79,7 @@ final class InactivityMonitor: ObservableObject {
         store.$paused.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] paused in
             guard let self else { return }
             self.cancelAll()
-            self.record("QuietBar", nil, paused ? "Automatic closing paused" : "Automatic closing resumed; fresh countdowns started")
+            self.record("AppSweep", nil, paused ? "Automatic closing paused" : "Automatic closing resumed; fresh countdowns started")
             if !paused && !self.suspended { self.resync() }
         }.store(in: &subscriptions)
         resync()
@@ -88,70 +90,82 @@ final class InactivityMonitor: ObservableObject {
         center.publisher(for: name).receive(on: DispatchQueue.main).sink(receiveValue: action).store(in: &subscriptions)
     }
 
-    private func track(_ app: NSRunningApplication) -> Entry? {
-        guard AppSafety.canManage(app), let identity = ProcessIdentity(app), let bundleID = app.bundleIdentifier else { return nil }
-        if let entry = entries[identity] { return entry }
-        // Remove a stale entry if macOS has reused its PID.
-        for old in Array(entries.keys) where old.pid == identity.pid && old != identity { remove(old) }
-        let entry = Entry(app: app, identity: identity, bundleID: bundleID)
-        entries[identity] = entry
-        statuses[identity] = ProcessStatus(id: identity, bundleID: bundleID, name: entry.name,
-            phase: isActive(app) ? .active : .idle)
-        entry.terminationObservation = app.observe(\.isTerminated, options: [.new]) { [weak self] app, _ in
-            guard app.isTerminated else { return }
-            Task { @MainActor [weak self] in self?.terminated(identity) }
+    private func track(_ app: NSRunningApplication) -> [Entry] {
+        guard AppSafety.isEligible(app), let bundleID = app.bundleIdentifier else { return [] }
+        return ProcessLookup.processes(for: app).map { process in
+            let identity = process.identity
+            if let entry = entries[identity] { return entry }
+            for old in Array(entries.keys) where old.pid == identity.pid && old != identity { remove(old) }
+            let entry = Entry(app: app, process: process, bundleID: bundleID)
+            entries[identity] = entry
+            statuses[identity] = ProcessStatus(id: identity, bundleID: bundleID, name: entry.name,
+                phase: isActive(app, identity: identity) ? .active : .idle)
+            entry.terminationObservation = app.observe(\.isTerminated, options: [.new]) { [weak self] app, _ in
+                guard app.isTerminated else { return }
+                Task { @MainActor [weak self] in
+                    if ProcessLookup.snapshot(pid: identity.pid)?.identity != identity { self?.terminated(identity) }
+                }
+            }
+            if app.processIdentifier != identity.pid {
+                record(entry.name, identity.pid, "Recovered live process identity from stale macOS application record")
+            }
+            return entry
         }
-        return entry
     }
 
-    private func isActive(_ app: NSRunningApplication) -> Bool {
-        app.isActive || (NSWorkspace.shared.frontmostApplication.flatMap(ProcessIdentity.init) == ProcessIdentity(app))
+    private func isActive(_ app: NSRunningApplication, identity: ProcessIdentity? = nil) -> Bool {
+        if app.isActive { return true }
+        guard let front = NSWorkspace.shared.frontmostApplication else { return false }
+        if let frontIdentity = ProcessIdentity(front), let identity { return frontIdentity == identity }
+        // A stale foreground record has no trustworthy PID. Protect every instance
+        // of its bundle conservatively until macOS identifies a different active app.
+        return front.bundleIdentifier == app.bundleIdentifier
     }
 
     private func liveApplication(_ entry: Entry) -> NSRunningApplication? {
-        guard let app = NSRunningApplication(processIdentifier: entry.identity.pid),
-              ProcessIdentity(app) == entry.identity, app.bundleIdentifier == entry.bundleID,
-              AppSafety.canManage(app) else { return nil }
+        guard let process = ProcessLookup.snapshot(pid: entry.identity.pid),
+              process.identity == entry.identity, process.executablePath == entry.executablePath else { return nil }
+        let app = NSRunningApplication(processIdentifier: entry.identity.pid) ?? entry.observedApplication
+        guard app.bundleIdentifier == entry.bundleID, AppSafety.isEligible(app),
+              app.executableURL?.resolvingSymlinksInPath().path == entry.executablePath else { return nil }
         return app
     }
 
     private func activated(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              let identity = ProcessIdentity(app) else { return }
-        let oldIdentity = lastActive
-        lastActive = identity
-        if let entry = track(app) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let activatedEntries = track(app)
+        let activeIdentities = Set(activatedEntries.map(\.identity))
+        for entry in activatedEntries {
             let hadWork = entry.timer != nil
             entry.cancel()
             setStatus(entry, .active)
             if hadWork { record(entry.name, entry.identity.pid, "Countdown or force fallback cancelled: application active") }
         }
-        // Activation also covers a missed deactivation event. Never reset an already-running timer.
-        if let oldIdentity, oldIdentity != identity, let old = entries[oldIdentity],
-           statuses[oldIdentity]?.phase == .active { startCountdown(old) }
+        for entry in Array(entries.values) where !activeIdentities.contains(entry.identity)
+            && statuses[entry.identity]?.phase == .active {
+            startCountdown(entry)
+        }
     }
 
     private func deactivated(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              let entry = track(app) else { return }
-        if statuses[entry.identity]?.phase == .active { startCountdown(entry) }
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        for entry in track(app) where statuses[entry.identity]?.phase == .active { startCountdown(entry) }
     }
 
     private func launched(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              let entry = track(app) else { return }
-        if !isActive(app) { startCountdown(entry) }
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        for entry in track(app) where !isActive(app, identity: entry.identity) { startCountdown(entry) }
     }
 
     private func resync() {
-        let apps = NSWorkspace.shared.runningApplications
-        let live = Set(apps.compactMap(ProcessIdentity.init))
-        for identity in Array(entries.keys) where !live.contains(identity) { terminated(identity) }
-        lastActive = NSWorkspace.shared.frontmostApplication.flatMap(ProcessIdentity.init)
-        for app in apps {
-            guard let entry = track(app) else { continue }
-            entry.cancel()
-            if isActive(app) { setStatus(entry, .active) } else { startCountdown(entry) }
+        for identity in Array(entries.keys) {
+            if ProcessLookup.snapshot(pid: identity.pid)?.identity != identity { terminated(identity) }
+        }
+        for app in NSWorkspace.shared.runningApplications {
+            for entry in track(app) {
+                entry.cancel()
+                if isActive(app, identity: entry.identity) { setStatus(entry, .active) } else { startCountdown(entry) }
+            }
         }
     }
 
@@ -161,14 +175,14 @@ final class InactivityMonitor: ObservableObject {
         for entry in Array(entries.values) where changed.contains(entry.bundleID) {
             entry.cancel()
             guard let app = liveApplication(entry) else { remove(entry.identity); continue }
-            if isActive(app) { setStatus(entry, .active) } else { startCountdown(entry) }
+            if isActive(app, identity: entry.identity) { setStatus(entry, .active) } else { startCountdown(entry) }
         }
     }
 
     private func startCountdown(_ entry: Entry) {
         entry.cancel()
         guard let app = liveApplication(entry) else { remove(entry.identity); return }
-        guard !isActive(app) else { setStatus(entry, .active); return }
+        guard !isActive(app, identity: entry.identity) else { setStatus(entry, .active); return }
         let policy = store.policy(for: entry.bundleID)
         guard !isPaused, policy.enabled else { setStatus(entry, .idle); return }
         setStatus(entry, .countdown, delay: policy.timeout)
@@ -184,7 +198,7 @@ final class InactivityMonitor: ObservableObject {
             if liveApplication(entry) == nil { remove(entry.identity) } else { setStatus(entry, .idle) }
             return nil
         }
-        guard !isActive(app) else {
+        guard !isActive(app, identity: entry.identity) else {
             entry.cancel(); setStatus(entry, .active)
             record(entry.name, entry.identity.pid, "Quit cancelled: application is active")
             return nil
@@ -197,16 +211,16 @@ final class InactivityMonitor: ObservableObject {
         let policy = store.policy(for: entry.bundleID)
         if policy.mode == .force { requestForceQuit(entry); return }
         setStatus(entry, .quitting, delay: policy.mode == .normalThenForce ? policy.fallbackDelay : nil)
-        let accepted = app.terminate()
+        let accepted = app.processIdentifier <= 0 || ProcessIdentity(app) == entry.identity ? app.terminate() : false
         record(entry.name, entry.identity.pid, accepted ? "Normal quit requested" : "Application did not accept normal quit", warning: !accepted)
-        if app.isTerminated { terminated(entry.identity); return }
+        if ProcessLookup.snapshot(pid: entry.identity.pid)?.identity != entry.identity { terminated(entry.identity); return }
         if policy.mode == .normalThenForce {
             arm(entry, delay: policy.fallbackDelay) { [weak self] in self?.requestForceQuit($0) }
         } else if accepted {
             // Observe once, without polling or sending repeat termination requests.
             arm(entry, delay: 5) { [weak self] in self?.checkTermination($0) }
         } else {
-            setStatus(entry, .refused, detail: "Normal quit was declined. Return to this app and switch away to try again.")
+            setStatus(entry, .refused, detail: "Normal quit was declined. Choose a force fallback in Quit strength for stubborn apps, or return and switch away to try normal quit again.")
         }
     }
 
@@ -218,21 +232,34 @@ final class InactivityMonitor: ObservableObject {
             entry.cancel(); setStatus(entry, .idle); return
         }
         setStatus(entry, .forcing)
-        let accepted = app.forceTerminate()
+        var accepted = ProcessIdentity(app) == entry.identity ? app.forceTerminate() : false
+        if !accepted || app.processIdentifier != entry.identity.pid {
+            // AppKit may send nothing when its cached PID is -1. An explicitly
+            // enabled force mode may use the public POSIX signal API after all
+            // identity, owner, executable, foreground, and policy checks pass again.
+            if let checked = permittedApplication(entry),
+               store.policy(for: entry.bundleID).mode != .normal,
+               !isActive(checked, identity: entry.identity),
+               let process = ProcessLookup.snapshot(pid: entry.identity.pid),
+               process.identity == entry.identity, process.executablePath == entry.executablePath {
+                accepted = ProcessLookup.forceQuitVerifiedProcess(entry.identity, executablePath: entry.executablePath)
+                if accepted { record(entry.name, entry.identity.pid, "Force quit sent directly to verified live process; AppKit force quit was unavailable", warning: true) }
+            } else { return }
+        }
         record(entry.name, entry.identity.pid, accepted ? "Force quit explicitly enabled: request sent" : "Force quit request failed", warning: true)
-        if app.isTerminated { terminated(entry.identity); return }
+        if ProcessLookup.snapshot(pid: entry.identity.pid)?.identity != entry.identity { terminated(entry.identity); return }
         if accepted { arm(entry, delay: 2) { [weak self] in self?.checkTermination($0) } }
         else { setStatus(entry, .refused, detail: "macOS did not accept the force quit request. No automatic retries.") }
     }
 
     private func checkTermination(_ entry: Entry) {
         guard let app = liveApplication(entry) else { terminated(entry.identity); return }
-        guard !isActive(app) else { entry.cancel(); setStatus(entry, .active); return }
+        guard !isActive(app, identity: entry.identity) else { entry.cancel(); setStatus(entry, .active); return }
         let forced = statuses[entry.identity]?.phase == .forcing
         setStatus(entry, .refused, detail: forced
             ? "Still running after force quit. No automatic retries."
-            : "Still running. The app may be showing a save confirmation, may be busy, or may have declined quit. No forced termination in Normal quit mode.")
-        record(entry.name, entry.identity.pid, forced ? "Still running after force quit" : "Still running after normal quit; save confirmation or refusal possible", warning: true)
+            : "The app did not exit after normal quit. The reason is unknown; this does not mean it has unsaved work. Choose a force fallback in Quit strength to close stubborn apps.")
+        record(entry.name, entry.identity.pid, forced ? "Still running after force quit" : "Still running after normal quit. Reason unknown; force fallback is off.", warning: true)
     }
 
     private func arm(_ entry: Entry, delay: TimeInterval, action: @escaping (Entry) -> Void) {
@@ -274,7 +301,7 @@ final class InactivityMonitor: ObservableObject {
     private func cancelAll() {
         for entry in Array(entries.values) {
             entry.cancel()
-            if let app = liveApplication(entry) { setStatus(entry, isActive(app) ? .active : .idle) }
+            if let app = liveApplication(entry) { setStatus(entry, isActive(app, identity: entry.identity) ? .active : .idle) }
             else { remove(entry.identity) }
         }
     }
@@ -284,7 +311,7 @@ final class InactivityMonitor: ObservableObject {
         guard value != suspended else { return }
         suspended = value
         cancelAll()
-        record("QuietBar", nil, value ? "Countdowns cancelled while Mac sleeps or session is inactive" : "Session resumed; fresh countdowns started")
+        record("AppSweep", nil, value ? "Countdowns cancelled while Mac sleeps or session is inactive" : "Session resumed; fresh countdowns started")
         if !value && !store.paused { resync() }
     }
 
