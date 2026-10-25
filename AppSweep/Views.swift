@@ -29,6 +29,8 @@ struct AppIcon: View {
 
 struct StatusBadge: View {
     let status: ProcessStatus
+    /// The TimelineView's date; without it SwiftUI sees an unchanged status and never redraws the countdown.
+    var tick: Date = .now
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 6, height: 6)
@@ -53,9 +55,21 @@ struct StatusBadge: View {
     }
 }
 
+struct AppearancePicker: View {
+    @ObservedObject var appearance: AppearanceController
+    var body: some View {
+        Picker("Appearance", selection: $appearance.mode) {
+            ForEach(AppearanceMode.allCases) { mode in
+                Image(systemName: mode.symbol).help(mode.title).accessibilityLabel(mode.title).tag(mode)
+            }
+        }.pickerStyle(.segmented).labelsHidden().help("Appearance: System, Light or Dark")
+    }
+}
+
 struct MenuView: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject var monitor: InactivityMonitor
+    @ObservedObject var appearance: AppearanceController
     let openSettings: () -> Void
     let quit: () -> Void
     var body: some View {
@@ -68,6 +82,7 @@ struct MenuView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                AppearancePicker(appearance: appearance).frame(width: 96)
             }
             Button {
                 store.setPaused(!store.paused)
@@ -77,7 +92,7 @@ struct MenuView: View {
             }.controlSize(.large)
             if let error = store.error { Text(error).font(.caption).foregroundStyle(.orange) }
             Divider()
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
+            TimelineView(.periodic(from: .now, by: 1)) { context in
                 let pending = monitor.orderedStatuses.filter { [.countdown, .quitting, .forcing, .refused].contains($0.phase) }
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -95,7 +110,7 @@ struct MenuView: View {
                         HStack {
                             Text(status.name).lineLimit(1)
                             Spacer()
-                            StatusBadge(status: status)
+                            StatusBadge(status: status, tick: context.date)
                         }.help("PID \(status.id.pid). \(status.detail ?? status.phase.title)")
                     }
                     if pending.count > 5 { Text("\(pending.count - 5) more in Settings").font(.caption).foregroundStyle(.secondary) }
@@ -128,6 +143,7 @@ struct SettingsView: View {
     @ObservedObject var catalog: ApplicationCatalog
     @ObservedObject var monitor: InactivityMonitor
     @ObservedObject var login: LoginItemManager
+    @ObservedObject var appearance: AppearanceController
     @State private var section: SettingsSection? = .applications
     @State private var selectedApp: String?
     var body: some View {
@@ -140,8 +156,10 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label(monitor.isPaused ? "Paused" : "Automatic closing on", systemImage: monitor.isPaused ? "pause.circle" : "checkmark.circle")
                         .font(.caption).foregroundStyle(monitor.isPaused ? Color.orange : Color.secondary)
-                    Button(store.paused ? "Resume" : "Pause") { store.setPaused(!store.paused) }
-                        .frame(maxWidth: .infinity)
+                    Button { store.setPaused(!store.paused) } label: {
+                        Text(store.paused ? "Resume" : "Pause").frame(maxWidth: .infinity)
+                    }
+                    AppearancePicker(appearance: appearance).frame(maxWidth: .infinity).padding(.top, 6)
                 }.padding(16)
             }.frame(width: 180).background(.regularMaterial)
             Divider()
@@ -157,7 +175,7 @@ struct SettingsView: View {
                     selectedApp = bundleID
                     section = .applications
                 }
-                case .general: GeneralView(store: store, login: login)
+                case .general: GeneralView(store: store, login: login, appearance: appearance)
                 }
             }
         }.frame(minWidth: 940, minHeight: 620)
@@ -206,7 +224,7 @@ private struct ApplicationsView: View {
                     Toggle("Enabled only", isOn: $enabledOnly).toggleStyle(.checkbox).font(.caption)
                 }.padding(18)
                 Divider()
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                TimelineView(.periodic(from: .now, by: 1)) { context in
                     List(filtered, selection: $selected) { app in
                         HStack(spacing: 10) {
                             AppIcon(url: app.url)
@@ -215,7 +233,7 @@ private struct ApplicationsView: View {
                                 if app.protection != nil {
                                     Label("Protected / unavailable", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
                                 } else if let status = monitor.orderedStatuses.first(where: { $0.bundleID == app.id }) {
-                                    StatusBadge(status: status)
+                                    StatusBadge(status: status, tick: context.date)
                                 } else {
                                     Text("Not running").font(.caption).foregroundStyle(.secondary)
                                 }
@@ -329,14 +347,14 @@ private struct AppDetailView: View {
                         Text("Unsaved documents cannot be reliably detected across all applications.").font(.caption).foregroundStyle(.secondary)
                     }.padding(10)
                 }.disabled(app.protection != nil)
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                TimelineView(.periodic(from: .now, by: 1)) { context in
                     let statuses = monitor.orderedStatuses.filter { $0.bundleID == app.id }
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Running instances").font(.headline)
                         if statuses.isEmpty { Text("Not running, or protected by macOS process safety rules.").font(.callout).foregroundStyle(.secondary) }
                         ForEach(statuses) { status in
                             VStack(alignment: .leading, spacing: 5) {
-                                HStack { Text("PID \(status.id.pid)").font(.caption.monospaced()); Spacer(); StatusBadge(status: status) }
+                                HStack { Text("PID \(status.id.pid)").font(.caption.monospaced()); Spacer(); StatusBadge(status: status, tick: context.date) }
                                 if let detail = status.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
                             }.padding(10).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
                         }
@@ -404,9 +422,16 @@ private struct ActivityView: View {
 private struct GeneralView: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject var login: LoginItemManager
+    @ObservedObject var appearance: AppearanceController
     @State private var confirmReset = false
     var body: some View {
         Form {
+            Section {
+                Picker("Appearance", selection: $appearance.mode) {
+                    ForEach(AppearanceMode.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+                }.pickerStyle(.segmented)
+                Text("System follows your Mac. Light or Dark keeps AppSweep in that appearance.").font(.caption).foregroundStyle(.secondary)
+            } header: { Text("Appearance") }
             Section {
                 Toggle("Launch at login", isOn: Binding(get: { login.requested }, set: { login.setEnabled($0) }))
                 Text(login.description).font(.caption).foregroundStyle(.secondary)
@@ -427,7 +452,7 @@ private struct GeneralView: View {
                 if store.canResetUnreadableSettings { Button("Back Up and Reset Unreadable Settings…") { confirmReset = true } }
             } header: { Text("Storage") }
             Section {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
+                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1")
                 Text("macOS 13 or later · Swift, AppKit & SwiftUI").font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Made by", value: "Simon Appleton / Pocket Giant")
                 Link("pocketgiant.games", destination: URL(string: "https://pocketgiant.games/")!)

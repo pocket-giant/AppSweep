@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private var catalog: ApplicationCatalog!
     private var monitor: InactivityMonitor!
     private var login: LoginItemManager!
+    private var appearance: AppearanceController!
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var settingsWindow: NSWindow?
@@ -38,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         catalog = ApplicationCatalog()
         monitor = InactivityMonitor(store: store)
         login = LoginItemManager()
+        appearance = AppearanceController()
+        appearance.onChange = { [weak self] value in self?.popover.appearance = value }
+        popover.appearance = appearance.mode.appearance
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.autosaveName = "AppSweepStatusItem"
         statusItem.behavior = .removalAllowed
@@ -64,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     @objc private func togglePopover() {
         if popover.isShown { popover.performClose(nil); return }
         guard let button = statusItem.button else { return }
-        popover.contentViewController = NSHostingController(rootView: MenuView(store: store, monitor: monitor,
+        popover.contentViewController = NSHostingController(rootView: MenuView(store: store, monitor: monitor, appearance: appearance,
             openSettings: { [weak self] in self?.showSettings() }, quit: { NSApp.terminate(nil) }))
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
@@ -88,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         window.minSize = NSSize(width: 940, height: 620)
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentView = NSHostingView(rootView: SettingsView(store: store, catalog: catalog, monitor: monitor, login: login))
+        window.contentView = NSHostingView(rootView: SettingsView(store: store, catalog: catalog, monitor: monitor, login: login, appearance: appearance))
         window.center()
         settingsWindow = window
         NSApp.activate(ignoringOtherApps: true)
@@ -133,5 +137,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         editItem.submenu = edit
         menu.addItem(editItem)
         NSApp.mainMenu = menu
+    }
+}
+
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .light: return "sun.max"
+        case .dark: return "moon"
+        }
+    }
+    var appearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+/// Follows the Mac's appearance until the user picks Light or Dark; the choice is kept in UserDefaults.
+@MainActor
+final class AppearanceController: ObservableObject {
+    private static let key = "appearanceMode"
+    @Published var mode: AppearanceMode {
+        didSet {
+            UserDefaults.standard.set(mode.rawValue, forKey: Self.key)
+            apply()
+        }
+    }
+    var onChange: ((NSAppearance?) -> Void)?
+
+    init() {
+        mode = UserDefaults.standard.string(forKey: Self.key).flatMap(AppearanceMode.init) ?? .system
+        apply()
+    }
+
+    func apply() {
+        NSApp.appearance = mode.appearance
+        onChange?(mode.appearance)
     }
 }
