@@ -2,15 +2,13 @@
 
 A native macOS menu bar app that clears inactive applications from your workspace, reduces Dock clutter, and frees the memory those applications use. Swift, AppKit, and SwiftUI; no external dependencies, helper services, scripts, or permission prompts.
 
-## Install the standalone app
+## Download
 
-1. Open `AppSweep.dmg` beside this project.
-2. Drag **AppSweep** onto the **Applications** shortcut inside the disk image.
-3. Eject the disk image and open **AppSweep** from Applications.
+Free for every Mac (macOS 13 or later, Apple Silicon and Intel). Get the latest `AppSweep-*.dmg` from [Releases](../../releases/latest), open it and drag **AppSweep** onto **Applications**.
 
-The standalone app requires macOS 13 or later; Xcode is not needed to run it. It lives in the menu bar with no Dock icon. Settings open on first launch; afterward, click the stack icon → **Settings…**.
+AppSweep is not yet notarised by Apple, so the first time you open it macOS will warn you. **Right-click AppSweep in Applications → Open → Open.** You only need to do this once. It lives in the menu bar with no Dock icon; Settings open on first launch.
 
-`AppSweep.app` is also available beside this project for direct drag-and-drop installation. Both copies contain the same universal Apple Silicon and Intel build, locally signed and not notarised. No publishing or external distribution was performed.
+Made by Simon Appleton / [Pocket Giant](https://pocketgiant.games/).
 
 ## Build locally
 

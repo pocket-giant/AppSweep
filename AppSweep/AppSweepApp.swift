@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         monitor = InactivityMonitor(store: store)
         login = LoginItemManager()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = "AppSweepStatusItem"
+        statusItem.behavior = .removalAllowed
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.setAccessibilityLabel("AppSweep")

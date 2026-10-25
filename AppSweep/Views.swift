@@ -429,6 +429,8 @@ private struct GeneralView: View {
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1")
                 Text("macOS 13 or later · Swift, AppKit & SwiftUI").font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Made by", value: "Simon Appleton / Pocket Giant")
+                Link("pocketgiant.games", destination: URL(string: "https://pocketgiant.games/")!)
             } header: { Text("AppSweep") }
         }.formStyle(.grouped).onAppear { login.refresh() }
         .alert("Reset unreadable settings?", isPresented: $confirmReset) {
