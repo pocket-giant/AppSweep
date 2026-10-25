@@ -427,7 +427,7 @@ private struct GeneralView: View {
                 if store.canResetUnreadableSettings { Button("Back Up and Reset Unreadable Settings…") { confirmReset = true } }
             } header: { Text("Storage") }
             Section {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1")
+                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                 Text("macOS 13 or later · Swift, AppKit & SwiftUI").font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Made by", value: "Simon Appleton / Pocket Giant")
                 Link("pocketgiant.games", destination: URL(string: "https://pocketgiant.games/")!)
