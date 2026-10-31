@@ -6,7 +6,7 @@ A native macOS menu bar app that clears inactive applications from your workspac
 
 Free for every Mac (macOS 13 or later, Apple Silicon and Intel). Get the latest `AppSweep-*.dmg` from [Releases](../../releases/latest), open it and drag **AppSweep** onto **Applications**.
 
-AppSweep is not yet notarised by Apple, so the first time you open it macOS will warn you. **Right-click AppSweep in Applications → Open → Open.** You only need to do this once. It lives in the menu bar with no Dock icon; Settings open on first launch.
+AppSweep is signed with Pocket Giant's Developer ID and notarised by Apple, so it opens normally; the first time, macOS asks you to confirm opening an app downloaded from the internet. It lives in the menu bar with no Dock icon; Settings open on first launch.
 
 Made by Simon Appleton / [Pocket Giant](https://pocketgiant.games/).
 
